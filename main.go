@@ -74,7 +74,7 @@ func main() {
 	defer func(s *discordgo.Session) {
 		err := s.Close()
 		if err != nil {
-
+			log.Fatalf("Failed to close session: %s", err)
 		}
 	}(s)
 
