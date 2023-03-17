@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -11,12 +12,19 @@ import (
 )
 
 type stock struct {
-	Name      string `json:"name"`
-	Symbol    string `json:"symbol"`
-	Price     string `json:"price"`
-	Change    string `json:"change"`
-	ChangePct string `json:"changePct"`
-	Market    string `json:"market"`
+	Name                string `json:"name"`
+	Symbol              string `json:"symbol"`
+	Price               string `json:"price"`
+	Change              string `json:"change"`
+	ChangePct           string `json:"changePct"`
+	Market              string `json:"market"`
+	FiveDayPerf         string `json:"fivedayPerf"`
+	OneMonthPerf        string `json:"onemonthPerf"`
+	ThreeMonthPerf      string `json:"threemonthPerf"`
+	OneYearPerf         string `json:"oneyearPerf"`
+	AfterHoursPrice     string `json:"afterHoursPrice"`
+	AfterHoursChange    string `json:"afterHoursChange"`
+	AfterHoursChangePct string `json:"afterHoursChangePct"`
 }
 
 var stockApiUrl = os.Getenv("STOCK_API_URL")
@@ -47,45 +55,91 @@ func GetSymbolAndMarket(input string) (string, string) {
 	return symbol, market
 }
 
+func renderStockInfo(stock stock) string {
+	if stock.ChangePct[0] != '-' {
+		stock.ChangePct = "+" + stock.ChangePct
+	}
+
+	formatMd := "_%s_ (%s) %s **$%s** (**%s**)"
+
+	if stock.AfterHoursPrice != "" {
+		formatMd += " After Hours: **$%s** (**%s**) "
+		return fmt.Sprintf(formatMd, stock.Name, stock.Symbol, stock.Market, stock.Price, stock.ChangePct, stock.AfterHoursPrice, stock.AfterHoursChangePct)
+	}
+
+	return fmt.Sprintf(formatMd, stock.Name, stock.Symbol, stock.Market, stock.Price, stock.ChangePct)
+}
+
+func renderPerformance(stock stock) string {
+	formatMd := "_%s_ Performance 5D: **%s** 1M: **%s** 3M: **%s** 1Y: **%s**"
+	return fmt.Sprintf(formatMd, stock.Symbol, stock.FiveDayPerf, stock.OneMonthPerf, stock.ThreeMonthPerf, stock.OneYearPerf)
+}
+
 func StockHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 	options := i.ApplicationCommandData().Options
 
 	symbol, market := GetSymbolAndMarket(strings.ToLower(options[0].StringValue()))
 
+	log.Printf("Received Interaction - Symbol: %s, Market: %s\n", symbol, market)
+
 	resp, err := http.Get(fmt.Sprintf("%s/%s/%s", stockApiUrl, symbol, market))
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			log.Printf("Error closing body: %s\n", err)
+			return
+		}
+	}(resp.Body)
 
 	stock := stock{}
 	decoder := json.NewDecoder(resp.Body)
-	decoder.Decode(&stock)
-
-	if stock.ChangePct[0] != '-' {
-		stock.ChangePct = "+" + stock.ChangePct
+	err = decoder.Decode(&stock)
+	if err != nil {
+		return
 	}
 
 	err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
-			Content: fmt.Sprintf("_%s_ (%s) %s **$%s** (**%s**)", stock.Name, stock.Symbol, stock.Market, stock.Price, stock.ChangePct),
+			Content: renderStockInfo(stock),
 		},
 	})
+
 	if err != nil {
-		s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+		log.Printf("Error responding: %s\n", err)
+		_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 			Content: fmt.Sprintf("Error responding: %s", err),
 		})
+		if err != nil {
+			return
+		}
+		return
+	}
+
+	_, err = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+		Content: renderPerformance(stock),
+	})
+	if err != nil {
+		return
+	}
+
+	if stock.ChangePct[0] == '+' {
+		_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Content: fmt.Sprintf(stonkUpGifUrl),
+		})
+		if err != nil {
+			return
+		}
 	} else {
-		if stock.ChangePct[0] == '+' {
-			s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
-				Content: fmt.Sprintf(stonkUpGifUrl),
-			})
-		} else {
-			s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
-				Content: fmt.Sprintf(stonkDownGifUrl),
-			})
+		_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Content: fmt.Sprintf(stonkDownGifUrl),
+		})
+		if err != nil {
+			return
 		}
 	}
 }

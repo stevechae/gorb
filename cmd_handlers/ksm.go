@@ -27,6 +27,7 @@ func GetKsmImageUrl() string {
 }
 
 func KsmHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	log.Printf("Received interaction: %s\n", i.ApplicationCommandData().Name)
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
