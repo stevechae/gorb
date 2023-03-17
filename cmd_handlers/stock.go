@@ -120,23 +120,27 @@ func StockHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		return
 	}
 
-	_, err = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
-		Content: renderPerformance(stock),
-	})
-	if err != nil {
-		return
+	if stock.FiveDayPerf != "" {
+		// ETF quotes may not have performance data
+		_, err = s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+			Content: renderPerformance(stock),
+		})
+
+		if err != nil {
+			return
+		}
 	}
 
-	if stock.ChangePct[0] == '+' {
+	if stock.ChangePct[0] == '-' {
 		_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
-			Content: fmt.Sprintf(stonkUpGifUrl),
+			Content: fmt.Sprintf(stonkDownGifUrl),
 		})
 		if err != nil {
 			return
 		}
 	} else {
 		_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
-			Content: fmt.Sprintf(stonkDownGifUrl),
+			Content: fmt.Sprintf(stonkUpGifUrl),
 		})
 		if err != nil {
 			return
